@@ -121,6 +121,10 @@ impl Miner {
                                 if timer.elapsed().as_secs().ge(&cutoff_time) {
                                     if best_difficulty.ge(&min_difficulty) {
                                         // Mine until min difficulty has been met
+                                        progress_bar.set_message(format!(
+                                            "Mining... ({} sec remaining)",
+                                            cutoff_time.saturating_sub(timer.elapsed().as_secs()),
+                                        ));
                                         break;
                                     }
                                 } else if i.id == 0 {
