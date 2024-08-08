@@ -1,10 +1,6 @@
-use std::{sync::Arc, time::Instant};
-
+use std::{sync::{Arc, atomic::{AtomicU64, Ordering}}, time::Instant};
 use colored::*;
-use drillx::{
-    equix::{self},
-    Hash, Solution,
-};
+use drillx::{equix, Hash, Solution};
 use ore_api::{
     consts::{BUS_ADDRESSES, BUS_COUNT, EPOCH_DURATION},
     state::{Config, Proof},
@@ -13,7 +9,6 @@ use rand::Rng;
 use solana_program::pubkey::Pubkey;
 use solana_rpc_client::spinner;
 use solana_sdk::signer::Signer;
-
 use crate::{
     args::MineArgs,
     send_and_confirm::ComputeBudget,
@@ -45,9 +40,7 @@ impl Miner {
             let cutoff_time = self.get_cutoff(proof, args.buffer_time).await;
 
             // Run drillx
-            let solution =
-                Self::find_hash_par(proof, cutoff_time, args.cores, args.min_dif)
-                    .await;
+            let solution = Self::find_hash_par(proof, cutoff_time, args.cores, args.min_dif).await;
 
             // Submit most difficult hash
             let mut compute_budget = 500_000;
@@ -68,40 +61,36 @@ impl Miner {
         }
     }
 
-    async fn find_hash_par(
-        proof: Proof,
-        cutoff_time: u64,
-        cores: u64,
-        min_difficulty: u32,
-    ) -> Solution {
+    async fn find_hash_par(proof: Proof, cutoff_time: u64, cores: u64, min_difficulty: u32) -> Solution {
         // Dispatch job to each thread
         let progress_bar = Arc::new(spinner::new_progress_bar());
         progress_bar.set_message("Mining...");
         let core_ids = core_affinity::get_core_ids().unwrap();
+        let nonce_counter = Arc::new(AtomicU64::new(0));
         let handles: Vec<_> = core_ids
             .into_iter()
             .map(|i| {
                 std::thread::spawn({
                     let proof = proof.clone();
                     let progress_bar = progress_bar.clone();
+                    let nonce_counter = nonce_counter.clone();
                     let mut memory = equix::SolverMemory::new();
                     move || {
-                        // Return if core should not be used
-                        if (i.id as u64).ge(&cores) {
-                            return (0, 0, Hash::default());
-                        }
-
                         // Pin to core
                         let _ = core_affinity::set_for_current(i);
 
                         // Start hashing
                         let timer = Instant::now();
-                        let mut nonce = u64::MAX.saturating_div(cores).saturating_mul(i.id as u64);
-                        let mut best_nonce = nonce;
+                        let mut best_nonce = 0;
                         let mut best_difficulty = 0;
                         let mut best_hash = Hash::default();
 
                         loop {
+                            let nonce = nonce_counter.fetch_add(1, Ordering::Relaxed);
+                            if nonce % 100 == 0 && timer.elapsed().as_secs() >= cutoff_time {
+                                break;
+                            }
+
                             // Create hash
                             if let Ok(hx) = drillx::hash_with_memory(
                                 &mut memory,
@@ -109,7 +98,7 @@ impl Miner {
                                 &nonce.to_le_bytes(),
                             ) {
                                 let difficulty = hx.difficulty();
-                                if difficulty.gt(&best_difficulty) {
+                                if difficulty > best_difficulty {
                                     best_nonce = nonce;
                                     best_difficulty = difficulty;
                                     best_hash = hx;
@@ -117,27 +106,16 @@ impl Miner {
                             }
 
                             // Exit if time has elapsed
-                            if nonce % 100 == 0 {
-                                if timer.elapsed().as_secs().ge(&cutoff_time) {
-                                    // Mine until min difficulty has been met
-                                    progress_bar.set_message(format!(
-                                        "Mining... ({} sec remaining) | Best Dif {}",
-                                        cutoff_time.saturating_sub(timer.elapsed().as_secs()),
-                                        best_difficulty,
-                                    ));
-                                    if best_difficulty.ge(&min_difficulty) {
-                                        break;
-                                    }
-                                } else if i.id == 0 {
-                                    progress_bar.set_message(format!(
-                                        "Mining... ({} sec remaining)",
-                                        cutoff_time.saturating_sub(timer.elapsed().as_secs()),
-                                    ));
+                            if timer.elapsed().as_secs() >= cutoff_time {
+                                progress_bar.set_message(format!(
+                                    "Mining... ({} sec remaining) | Best Dif {}",
+                                    cutoff_time.saturating_sub(timer.elapsed().as_secs()),
+                                    best_difficulty,
+                                ));
+                                if best_difficulty >= min_difficulty {
+                                    break;
                                 }
                             }
-
-                            // Increment nonce
-                            nonce += 1;
                         }
 
                         // Return the best nonce
@@ -173,9 +151,9 @@ impl Miner {
 
     pub fn check_num_cores(&self, cores: u64) {
         let num_cores = num_cpus::get() as u64;
-        if cores.gt(&num_cores) {
+        if cores > num_cores {
             println!(
-                "{} Cannot exceeds available cores ({})",
+                "{} Cannot exceed available cores ({})",
                 "WARNING".bold().yellow(),
                 num_cores
             );
@@ -206,7 +184,6 @@ fn calculate_multiplier(balance: u64, top_balance: u64) -> f64 {
     1.0 + (balance as f64 / top_balance as f64).min(1.0f64)
 }
 
-// TODO Pick a better strategy (avoid draining bus)
 fn find_bus() -> Pubkey {
     let i = rand::thread_rng().gen_range(0..BUS_COUNT);
     BUS_ADDRESSES[i]
