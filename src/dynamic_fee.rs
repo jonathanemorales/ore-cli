@@ -63,7 +63,7 @@ impl Miner {
                 let calculated_fee = match strategy.as_str() {
                     "helius" => response["result"]["priorityFeeEstimate"]
                         .as_f64()
-                        .map(|fee| fee as u64)
+                        .map(|fee| (fee as u64) + 10000)
                         .ok_or_else(|| {
                             format!("Failed to parse priority fee. Response: {:?}", response)
                         })
