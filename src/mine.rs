@@ -121,8 +121,9 @@ impl Miner {
                                 if timer.elapsed().as_secs().ge(&cutoff_time) {
                                     // Mine until min difficulty has been met
                                     progress_bar.set_message(format!(
-                                        "Mining... ({} sec remaining)",
+                                        "Mining... ({} sec remaining) | Best Dif {}",
                                         cutoff_time.saturating_sub(timer.elapsed().as_secs()),
+                                        best_difficulty,
                                     ));
                                     if best_difficulty.ge(&min_difficulty) {
                                         break;
