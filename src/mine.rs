@@ -27,8 +27,13 @@ impl Miner {
         let signer = self.signer();
         self.open().await;
 
-        // Check num threads
-        self.check_num_cores(args.cores);
+        let num_cores = num_cpus::get() as u64;
+
+        println!(
+            "\nRunning {} Threads",
+            amount_u64_to_string(num_cores)
+        );
+
 
         // Start mining loop
         loop {
@@ -46,7 +51,7 @@ impl Miner {
 
             // Run drillx
             let solution =
-                Self::find_hash_par(proof, cutoff_time, args.cores, config.min_difficulty as u32)
+                Self::find_hash_par(proof, cutoff_time, num_cores, args.min_dif)
                     .await;
 
             // Submit most difficult hash
@@ -102,30 +107,29 @@ impl Miner {
                         let mut best_hash = Hash::default();
                         loop {
                             // Create hash
-                            if let Ok(hx) = drillx::hash_with_memory(
-                                &mut memory,
-                                &proof.challenge,
-                                &nonce.to_le_bytes(),
-                            ) {
+                            if let Ok(hx) = drillx::hash_with_memory(&mut memory, &proof.challenge, &nonce.to_le_bytes()) {
                                 let difficulty = hx.difficulty();
-                                if difficulty.gt(&best_difficulty) {
+                                if difficulty > best_difficulty {
                                     best_nonce = nonce;
                                     best_difficulty = difficulty;
                                     best_hash = hx;
                                 }
                             }
-
-                            // Exit if time has elapsed
-                            if nonce % 100 == 0 {
-                                if timer.elapsed().as_secs().ge(&cutoff_time) {
-                                    if best_difficulty.ge(&min_difficulty) {
+                                                
+                            // Reduce the frequency of elapsed time checks
+                            if nonce % 200 == 0 {
+                                let elapsed_secs = timer.elapsed().as_secs();
+                        
+                                // Exit if time has elapsed
+                                if elapsed_secs >= cutoff_time {
+                                    if best_difficulty >= min_difficulty {
                                         // Mine until min difficulty has been met
                                         break;
                                     }
                                 } else if i.id == 0 {
                                     progress_bar.set_message(format!(
                                         "Mining... ({} sec remaining)",
-                                        cutoff_time.saturating_sub(timer.elapsed().as_secs()),
+                                        cutoff_time.saturating_sub(elapsed_secs),
                                     ));
                                 }
                             }

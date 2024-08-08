@@ -134,7 +134,8 @@ struct Args {
         long,
         value_name = "DYNAMIC_FEE_STRATEGY",
         help = "Strategy to use for dynamic fee estimation. Must be one of 'helius', or 'triton'.",
-        global = true
+        global = true,
+        default_value = "helius"
     )]
     dynamic_fee_strategy: Option<String>,
 
