@@ -27,14 +27,6 @@ impl Miner {
         let signer = self.signer();
         self.open().await;
 
-        let num_cores = num_cpus::get() as u64;
-
-        println!(
-            "\nRunning {} Threads",
-            num_cores
-        );
-
-
         // Start mining loop
         loop {
             // Fetch proof
@@ -51,7 +43,7 @@ impl Miner {
 
             // Run drillx
             let solution =
-                Self::find_hash_par(proof, cutoff_time, num_cores, args.min_dif)
+                Self::find_hash_par(proof, cutoff_time, arg.cores, args.min_dif)
                     .await;
 
             // Submit most difficult hash
